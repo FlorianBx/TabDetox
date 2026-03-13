@@ -1,7 +1,7 @@
 # TabDetox
 
 <p align="center">
-  <img src="docs/hero-generated.png" alt="TabDetox hero image with the real extension popup" width="1000" />
+  <img width="400px" src="docs/hero-generated.png" alt="TabDetox hero image with the real extension popup" width="1000" />
 </p>
 
 TabDetox is a Chrome extension that helps you keep a calm tab bar.
@@ -29,17 +29,6 @@ TabDetox solves this in a simple way. Old tabs leave your tab bar, but they are 
 - Works in English and French
 
 ## A simple control panel
-
-<p align="center">
-  <picture>
-    <source
-      type="image/webp"
-      srcset="docs/popup-shot-500.webp 500w, docs/popup-shot-1000.webp 1000w, docs/popup-shot-1500.webp 1500w, docs/popup-shot-2000.webp 2000w"
-      sizes="(max-width: 780px) 92vw, 760px"
-    />
-    <img src="docs/popup-shot.jpg" alt="Real TabDetox popup screenshot" width="760" />
-  </picture>
-</p>
 
 The popup is made to be clear in a few seconds.
 
