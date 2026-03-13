@@ -1,6 +1,7 @@
 const ALARM_CLEANUP = "cleanup";
 const ALARM_WEEKLY = "weeklyCleanup";
-const BOOKMARK_ROOT_NAME = "TabCleaner";
+const BOOKMARK_ROOT_NAME = "TabDetox";
+const LEGACY_BOOKMARK_ROOT_NAME = "TabCleaner";
 
 const DEFAULT_SETTINGS = {
   enabled: true,
@@ -54,7 +55,11 @@ async function getOrCreateRootFolder() {
 
   if (tabCleanerFolderId) {
     try {
-      await chrome.bookmarks.getChildren(tabCleanerFolderId);
+      const [folder] = await chrome.bookmarks.get(tabCleanerFolderId);
+      if (folder?.url) throw new Error(`Bookmark root ${tabCleanerFolderId} is not a folder`);
+      if (folder && folder.title !== BOOKMARK_ROOT_NAME) {
+        await chrome.bookmarks.update(folder.id, { title: BOOKMARK_ROOT_NAME });
+      }
       return tabCleanerFolderId;
     } catch {
       // Folder was deleted or ID is stale (e.g. after sync); fall through to recreate
@@ -62,9 +67,15 @@ async function getOrCreateRootFolder() {
     }
   }
 
-  const results = await chrome.bookmarks.search({ title: BOOKMARK_ROOT_NAME });
-  const existing = results.find((node) => !node.url);
+  const [currentResults, legacyResults] = await Promise.all([
+    chrome.bookmarks.search({ title: BOOKMARK_ROOT_NAME }),
+    chrome.bookmarks.search({ title: LEGACY_BOOKMARK_ROOT_NAME }),
+  ]);
+  const existing = currentResults.find((node) => !node.url) ?? legacyResults.find((node) => !node.url);
   if (existing) {
+    if (existing.title !== BOOKMARK_ROOT_NAME) {
+      await chrome.bookmarks.update(existing.id, { title: BOOKMARK_ROOT_NAME });
+    }
     await chrome.storage.local.set({ tabCleanerFolderId: existing.id });
     return existing.id;
   }
@@ -95,7 +106,7 @@ async function bookmarkAndClose(tab, folderId) {
       url: tab.url,
     });
   } catch (err) {
-    console.error(`[TabCleaner] Failed to bookmark tab ${tab.id} (${tab.url}):`, err);
+    console.error(`[TabDetox] Failed to bookmark tab ${tab.id} (${tab.url}):`, err);
     return;
   }
 
@@ -103,7 +114,7 @@ async function bookmarkAndClose(tab, folderId) {
     await chrome.tabs.remove(tab.id);
   } catch (err) {
     // Tab may have been closed by the user between our query and now
-    console.warn(`[TabCleaner] Could not close tab ${tab.id}:`, err);
+    console.warn(`[TabDetox] Could not close tab ${tab.id}:`, err);
   }
 }
 
@@ -175,7 +186,7 @@ async function runBookmarkCleanup() {
   try {
     rootId = await getOrCreateRootFolder();
   } catch (err) {
-    console.error("[TabCleaner] Weekly cleanup: could not find root folder:", err);
+    console.error("[TabDetox] Weekly cleanup: could not find root folder:", err);
     return;
   }
 
@@ -191,7 +202,7 @@ async function runBookmarkCleanup() {
       try {
         await chrome.bookmarks.removeTree(child.id);
       } catch (err) {
-        console.warn(`[TabCleaner] Could not remove old folder "${child.title}":`, err);
+        console.warn(`[TabDetox] Could not remove old folder "${child.title}":`, err);
       }
     }
   }
@@ -238,7 +249,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.sync.set({ settings });
     await ensureAlarmsExist(settings);
   } catch (err) {
-    console.error("[TabCleaner] onInstalled failed:", err);
+    console.error("[TabDetox] onInstalled failed:", err);
   }
 });
 
@@ -247,25 +258,25 @@ chrome.runtime.onStartup.addListener(async () => {
     const settings = await getSettings();
     await ensureAlarmsExist(settings);
   } catch (err) {
-    console.error("[TabCleaner] onStartup failed:", err);
+    console.error("[TabDetox] onStartup failed:", err);
   }
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  trackTabAccess(tabId).catch((err) => console.error("[TabCleaner] trackTabAccess failed:", err));
+  trackTabAccess(tabId).catch((err) => console.error("[TabDetox] trackTabAccess failed:", err));
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "complete") {
-    trackTabAccess(tabId).catch((err) => console.error("[TabCleaner] trackTabAccess failed:", err));
+    trackTabAccess(tabId).catch((err) => console.error("[TabDetox] trackTabAccess failed:", err));
   }
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_CLEANUP) {
-    runCleanup().catch((err) => console.error("[TabCleaner] runCleanup failed:", err));
+    runCleanup().catch((err) => console.error("[TabDetox] runCleanup failed:", err));
   } else if (alarm.name === ALARM_WEEKLY) {
-    runBookmarkCleanup().catch((err) => console.error("[TabCleaner] runBookmarkCleanup failed:", err));
+    runBookmarkCleanup().catch((err) => console.error("[TabDetox] runBookmarkCleanup failed:", err));
   }
 });
 
@@ -280,7 +291,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     chrome.alarms.create(ALARM_CLEANUP, {
       delayInMinutes: merged.checkIntervalMinutes,
       periodInMinutes: merged.checkIntervalMinutes,
-    }).catch((err) => console.error("[TabCleaner] onChanged alarm creation failed:", err));
+    }).catch((err) => console.error("[TabDetox] onChanged alarm creation failed:", err));
   }
 });
 
@@ -290,7 +301,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then((settings) => getStats(settings))
       .then((stats) => sendResponse(stats))
       .catch((err) => {
-        console.error("[TabCleaner] getStats failed:", err);
+        console.error("[TabDetox] getStats failed:", err);
         sendResponse({ totalTabs: 0, tabsToClose: 0, lastRunTimestamp: null });
       });
     return true;
@@ -300,7 +311,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     runCleanup()
       .then(() => sendResponse({ ok: true }))
       .catch((err) => {
-        console.error("[TabCleaner] runCleanup failed:", err);
+        console.error("[TabDetox] runCleanup failed:", err);
         sendResponse({ ok: false, error: String(err) });
       });
     return true;
